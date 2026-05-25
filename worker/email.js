@@ -24,26 +24,34 @@ function escapeHtml(s) {
   }[c]));
 }
 
+function withHeading(title, dataUri) {
+  if (!dataUri) return '';
+  return `<h3 style="color:#5a1414;border-bottom:1px solid #5a1414;padding-bottom:4px;margin-top:28px;">${title}</h3>
+  <img src="${dataUri}" alt="${escapeHtml(title)}" style="max-width:100%;height:auto;"/>`;
+}
+
+function bareImage(dataUri, alt) {
+  if (!dataUri) return '';
+  return `<div style="margin-top:24px;"><img src="${dataUri}" alt="${escapeHtml(alt)}" style="max-width:100%;height:auto;"/></div>`;
+}
+
 export function buildHtmlEmail({ scope, report }) {
   const label = scope === 'ga' ? 'GA' : 'Non-GA';
-  const summaryCardImg = report.images.summaryCards
-    ? `<img src="${report.images.summaryCards}" alt="Renewals summary" style="max-width:100%;border:1px solid #eee;"/>`
-    : '';
+  const img = report.images || {};
 
   return `<!doctype html>
 <html><body style="font:14px Arial,sans-serif;color:#222;">
   <p>Hi Team,</p>
   <p>Sharing Report for ${label}</p>
 
-  <h3 style="color:#5a1414;border-bottom:1px solid #5a1414;padding-bottom:4px;">30 DAYS RENEWAL</h3>
-  ${summaryCardImg}
-  <div style="margin-top:12px;">${renderTable(report.tables.renewals)}</div>
+  ${img.kpiCards ? `<img src="${img.kpiCards}" alt="Renewals summary" style="max-width:100%;height:auto;margin:8px 0;"/>` : ''}
 
-  <h3 style="color:#5a1414;border-bottom:1px solid #5a1414;padding-bottom:4px;margin-top:24px;">NEW POLICIES BOUND — PAST 14 DAYS</h3>
-  ${renderTable(report.tables.newPolicies)}
+  ${withHeading('30 DAYS RENEWAL', img.renewals30)}
+  ${withHeading('60 DAYS RENEWAL', img.renewals60)}
+  ${withHeading('90 DAYS RENEWAL', img.renewals90)}
 
-  <h3 style="color:#5a1414;border-bottom:1px solid #5a1414;padding-bottom:4px;margin-top:24px;">PRODUCER ACTIVITY — PAST 14 DAYS</h3>
-  ${renderTable(report.tables.producerActivity)}
+  ${bareImage(img.newPolicies, 'New policies bound — past 14 days')}
+  ${bareImage(img.producerActivity, 'Producer activity — past 14 days')}
 
   <p style="color:#888;font-size:12px;margin-top:24px;">Generated ${new Date(report.generatedAt).toLocaleString()}</p>
 </body></html>`;

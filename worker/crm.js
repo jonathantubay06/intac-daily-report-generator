@@ -1,7 +1,31 @@
 import { chromium } from 'playwright';
+import { writeFile } from 'node:fs/promises';
 import { config } from './config.js';
 
+const DEBUG = process.env.DEBUG_DUMP === '1';
 const NAV_TIMEOUT = 30_000;
+
+const SEL = {
+  // Login
+  loginUserSelect: '#username',
+  loginPasswordInput: '#password',
+  loginSubmit: '#login-form button[type="submit"]',
+  loginError: '#login-form #error',
+
+  // Daily report — scope tabs (Non-GA / GA pills inside the filter bar)
+  // ":text-is" is exact-match — needed because "Non-GA" contains "GA" as a substring.
+  scopePill: (label) => `.dr-pill:text-is("${label}")`,
+  windowPill: (days) => `.dr-pill:has-text("Next ${days} days")`,
+
+  // Sections (each is a <section class="dr-section">)
+  renewalsSection: 'section.dr-section:has(.dr-kpi-grid)',
+  newPoliciesSection: 'section.dr-section:has(h3.dr-section-h:has-text("New policies bound"))',
+  producerActivitySection: 'section.dr-section:has(h3.dr-section-h:has-text("Producer activity"))',
+
+  // Inner pieces
+  kpiGrid: '.dr-kpi-grid',
+  renewalsTable: '.dr-table',
+};
 
 export async function generateReport(scope) {
   if (!config.crmUser || !config.crmPassword) {
@@ -9,7 +33,7 @@ export async function generateReport(scope) {
   }
 
   const browser = await chromium.launch({ headless: true });
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
 
   try {
@@ -18,21 +42,50 @@ export async function generateReport(scope) {
 
     await selectScopeTab(page, scope);
 
-    const summaryCardImg = await screenshotRegion(page, SEL.summaryCardsBlock);
-    const renewals = await scrapeRenewalsTable(page);
-    const policies = await scrapeNewPoliciesTable(page);
-    const activity = await scrapeProducerActivityTable(page);
+    if (DEBUG) {
+      const html = await page.content();
+      await writeFile(`debug-${scope}.html`, html, 'utf8');
+      console.log(`[debug] wrote debug-${scope}.html (${html.length} bytes)`);
+    }
+
+    // Disable chrome that overlaps element screenshots.
+    await page.addStyleTag({
+      content: `
+        .topbar, header.topbar { position: static !important; }
+        #banner-host { display: none !important; }
+        .lead-view-backdrop, .lead-view { display: none !important; }
+      `,
+    });
+
+    // Capture KPI cards before hiding them.
+    const kpiCards = await shotOf(page, `${SEL.renewalsSection} ${SEL.kpiGrid}`);
+
+    // Inside the renewals section: hide the duplicate section heading and the
+    // KPI grid so each 30/60/90 screenshot is filter-bar + summary + table only.
+    await page.addStyleTag({
+      content: `
+        ${SEL.renewalsSection} .dr-section-h,
+        ${SEL.renewalsSection} .dr-kpi-grid { display: none !important; }
+      `,
+    });
+
+    const renewals30 = await shotRenewalsAt(page, 30);
+    const renewals60 = await shotRenewalsAt(page, 60);
+    const renewals90 = await shotRenewalsAt(page, 90);
+
+    const newPolicies = await shotOf(page, SEL.newPoliciesSection);
+    const producerActivity = await shotOf(page, SEL.producerActivitySection);
 
     return {
       scope,
       generatedAt: new Date().toISOString(),
       images: {
-        summaryCards: summaryCardImg,
-      },
-      tables: {
-        renewals,
-        newPolicies: policies,
-        producerActivity: activity,
+        kpiCards,
+        renewals30,
+        renewals60,
+        renewals90,
+        newPolicies,
+        producerActivity,
       },
     };
   } finally {
@@ -41,83 +94,41 @@ export async function generateReport(scope) {
   }
 }
 
-// ============================================================
-// TODO selectors — fill these in once we can probe the live CRM.
-// The screenshots show the structure; the actual DOM attribute
-// names (class/id) are not yet known.
-// ============================================================
-const SEL = {
-  // Login page (crm.intacadvisory.com/login)
-  loginNameDropdown: 'select, [role="combobox"]', // TODO: locator for "WHO ARE YOU?"
-  loginPasswordInput: 'input[type="password"]',
-  loginSubmit: 'button:has-text("Sign in")',
-
-  // Daily report page
-  scopeNonGaTab: 'button:has-text("Non-GA")',
-  scopeGaTab: 'button:has-text("GA"):not(:has-text("Non-GA"))',
-  windowNext30: 'button:has-text("Next 30 days")',
-
-  summaryCardsBlock: 'section:has-text("RENEWALS — UPCOMING PIPELINE")', // TODO
-  renewalsTable: 'section:has-text("UPCOMING RENEWALS") table',          // TODO
-  newPoliciesTable: 'section:has-text("NEW POLICIES BOUND") table',      // TODO
-  producerActivityTable: 'section:has-text("PRODUCER ACTIVITY") table',  // TODO
-};
-
 async function login(page) {
   await page.goto(`${config.crmUrl}/login`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
-
-  // The CRM uses a "Who are you?" dropdown + team password.
-  // TODO: replace with the real dropdown interaction once we know the widget.
-  // Naive attempt — try native <select>, then a combobox role.
-  const dropdown = page.locator(SEL.loginNameDropdown).first();
-  if (await dropdown.evaluate(el => el.tagName === 'SELECT').catch(() => false)) {
-    await dropdown.selectOption({ label: config.crmUser });
-  } else {
-    await dropdown.click();
-    await page.locator(`role=option[name="${config.crmUser}"]`).click({ timeout: 5000 }).catch(async () => {
-      // Fallback: type the name and pick first match
-      await page.keyboard.type(config.crmUser);
-      await page.keyboard.press('Enter');
-    });
-  }
-
+  const user = config.crmUser.trim();
+  const selectArg = user.includes(' ') ? { label: user } : { value: user.toLowerCase() };
+  await page.locator(SEL.loginUserSelect).selectOption(selectArg);
   await page.locator(SEL.loginPasswordInput).fill(config.crmPassword);
   await page.locator(SEL.loginSubmit).click();
-  await page.waitForURL(/#\/(daily-report|dashboard)/, { timeout: NAV_TIMEOUT });
+
+  await Promise.race([
+    page.waitForURL((u) => !/\/login$/.test(u.toString()), { timeout: NAV_TIMEOUT }),
+    page.locator(`${SEL.loginError}:not([hidden])`).waitFor({ timeout: NAV_TIMEOUT })
+      .then(async () => {
+        const msg = await page.locator(SEL.loginError).innerText().catch(() => 'login failed');
+        throw new Error(`CRM login failed: ${msg}`);
+      }),
+  ]);
 }
 
 async function selectScopeTab(page, scope) {
-  const sel = scope === 'ga' ? SEL.scopeGaTab : SEL.scopeNonGaTab;
-  await page.locator(sel).first().click();
-  // Default window: Next 30 days
-  await page.locator(SEL.windowNext30).first().click().catch(() => {});
-  await page.waitForLoadState('networkidle', { timeout: NAV_TIMEOUT });
+  const label = scope === 'ga' ? 'GA' : 'Non-GA';
+  // Several .dr-pill exist; the one inside .dr-pill-group with matching text is the scope filter.
+  await page.locator(`.dr-pill-group ${SEL.scopePill(label)}`).first().click();
+  await page.waitForLoadState('networkidle', { timeout: NAV_TIMEOUT }).catch(() => {});
 }
 
-async function screenshotRegion(page, selector) {
+async function shotRenewalsAt(page, days) {
+  await page.locator(SEL.windowPill(days)).first().click();
+  await page.waitForLoadState('networkidle', { timeout: NAV_TIMEOUT }).catch(() => {});
+  await page.waitForTimeout(250);
+  return shotOf(page, SEL.renewalsSection);
+}
+
+async function shotOf(page, selector) {
   const el = page.locator(selector).first();
   await el.scrollIntoViewIfNeeded();
   const buf = await el.screenshot({ type: 'png' });
   return `data:image/png;base64,${buf.toString('base64')}`;
-}
-
-async function scrapeTable(page, selector) {
-  return await page.locator(selector).first().evaluate((table) => {
-    const headers = Array.from(table.querySelectorAll('thead th'))
-      .map(th => th.innerText.trim());
-    const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr =>
-      Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim())
-    );
-    return { headers, rows };
-  });
-}
-
-async function scrapeRenewalsTable(page) {
-  return scrapeTable(page, SEL.renewalsTable);
-}
-async function scrapeNewPoliciesTable(page) {
-  return scrapeTable(page, SEL.newPoliciesTable);
-}
-async function scrapeProducerActivityTable(page) {
-  return scrapeTable(page, SEL.producerActivityTable);
 }
