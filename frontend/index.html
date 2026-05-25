@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Intac Daily Report Generator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="brand-mark">▲▲</span>
+      <span class="brand-name">INTAC<span class="muted">ADVISORY</span></span>
+    </div>
+    <div class="brand-sub">Daily Report Generator</div>
+  </header>
+
+  <main id="login-view" class="card">
+    <h2>Sign in</h2>
+    <p class="muted">Enter the team password to continue.</p>
+    <label>TEAM PASSWORD
+      <input id="team-pw" type="password" autocomplete="current-password" />
+    </label>
+    <button id="login-btn" class="primary">Sign in</button>
+    <p id="login-err" class="err"></p>
+  </main>
+
+  <main id="dash-view" class="card hidden">
+    <h2>Generate today's report</h2>
+    <div class="row">
+      <button class="primary" data-scope="non-ga">Generate Non-GA</button>
+      <button class="primary" data-scope="ga">Generate GA</button>
+    </div>
+    <p id="status" class="muted"></p>
+
+    <section id="preview" class="hidden">
+      <div class="row gap">
+        <button id="copy-html">Copy HTML</button>
+        <button id="download-eml">Download .eml</button>
+        <span id="copy-status" class="muted"></span>
+      </div>
+      <h3>Preview</h3>
+      <iframe id="preview-frame" title="Email preview"></iframe>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
