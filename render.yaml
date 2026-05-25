@@ -2,10 +2,9 @@ services:
   - type: web
     name: intac-report-worker
     runtime: docker
-    plan: free
     region: oregon
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    dockerfilePath: ./worker/Dockerfile
+    dockerContext: ./worker
     healthCheckPath: /health
     envVars:
       - key: CRM_URL
