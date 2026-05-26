@@ -1,8 +1,12 @@
 // Frontend logic — talks to the Render worker.
 
 function getWorkerUrl() {
+  // Source of truth = config.js (auto-updated by launch.js on each tunnel start).
+  // Session-only override = whatever the user just typed into the Worker URL field.
+  // Nothing is persisted to localStorage — that caused stale URLs after tunnel restart.
+  const sessionOverride = sessionStorage.getItem('workerUrl');
   return (
-    localStorage.getItem('workerUrl') ||
+    sessionOverride ||
     window.__WORKER_URL__ ||
     'http://localhost:3001'
   );
@@ -24,8 +28,11 @@ const els = {
   copyStatus: $('#copy-status'),
 };
 
-// Pre-fill with the saved override, falling back to the default from config.js.
-els.workerUrl.value = localStorage.getItem('workerUrl') || window.__WORKER_URL__ || '';
+// Always show the current default (which the launcher auto-updates).
+// User can still edit for a one-off override; it lasts the session only.
+els.workerUrl.value = window.__WORKER_URL__ || '';
+// Clear any old localStorage cruft from earlier versions.
+localStorage.removeItem('workerUrl');
 
 let teamPassword = sessionStorage.getItem('teamPw') || '';
 let lastResult = null;
@@ -36,11 +43,14 @@ els.loginBtn.addEventListener('click', async () => {
   const pw = els.teamPw.value.trim();
   if (!pw) return;
 
-  const customUrl = els.workerUrl.value.trim();
-  if (customUrl) {
-    localStorage.setItem('workerUrl', customUrl.replace(/\/+$/, ''));
+  // Session-only override: if user typed something different from the default,
+  // honor it for this tab only. Closing the tab clears it.
+  const typed = els.workerUrl.value.trim().replace(/\/+$/, '');
+  const def = (window.__WORKER_URL__ || '').replace(/\/+$/, '');
+  if (typed && typed !== def) {
+    sessionStorage.setItem('workerUrl', typed);
   } else {
-    localStorage.removeItem('workerUrl');
+    sessionStorage.removeItem('workerUrl');
   }
   const workerUrl = getWorkerUrl();
 

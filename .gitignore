@@ -1,6 +1,7 @@
 node_modules/
 .env
 debug-*.html
+access.log
 .env.local
 *.log
 .DS_Store
