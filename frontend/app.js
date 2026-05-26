@@ -1,15 +1,19 @@
 // Frontend logic — talks to the Render worker.
 
-const WORKER_URL =
-  window.__WORKER_URL__ ||
-  localStorage.getItem('workerUrl') ||
-  'http://localhost:3001';
+function getWorkerUrl() {
+  return (
+    localStorage.getItem('workerUrl') ||
+    window.__WORKER_URL__ ||
+    'http://localhost:3001'
+  );
+}
 
 const $ = (sel) => document.querySelector(sel);
 const els = {
   loginView: $('#login-view'),
   dashView: $('#dash-view'),
   teamPw: $('#team-pw'),
+  workerUrl: $('#worker-url'),
   loginBtn: $('#login-btn'),
   loginErr: $('#login-err'),
   status: $('#status'),
@@ -20,6 +24,9 @@ const els = {
   copyStatus: $('#copy-status'),
 };
 
+// Pre-fill the worker URL input from whatever is currently saved.
+els.workerUrl.value = localStorage.getItem('workerUrl') || '';
+
 let teamPassword = sessionStorage.getItem('teamPw') || '';
 let lastResult = null;
 
@@ -28,18 +35,25 @@ if (teamPassword) showDash();
 els.loginBtn.addEventListener('click', async () => {
   const pw = els.teamPw.value.trim();
   if (!pw) return;
+
+  const customUrl = els.workerUrl.value.trim();
+  if (customUrl) {
+    localStorage.setItem('workerUrl', customUrl.replace(/\/+$/, ''));
+  } else {
+    localStorage.removeItem('workerUrl');
+  }
+  const workerUrl = getWorkerUrl();
+
   els.loginErr.textContent = '';
   els.loginBtn.disabled = true;
   try {
-    // Probe by hitting /health — auth is checked per-request, but we want
-    // immediate feedback that the worker is reachable.
-    const r = await fetch(`${WORKER_URL}/health`);
+    const r = await fetch(`${workerUrl}/health`);
     if (!r.ok) throw new Error('worker unreachable');
     teamPassword = pw;
     sessionStorage.setItem('teamPw', pw);
     showDash();
   } catch (err) {
-    els.loginErr.textContent = `Cannot reach worker at ${WORKER_URL}`;
+    els.loginErr.textContent = `Cannot reach worker at ${workerUrl}`;
   } finally {
     els.loginBtn.disabled = false;
   }
@@ -84,7 +98,7 @@ async function generate(scope) {
   els.preview.classList.add('hidden');
   els.status.textContent = `Generating ${scope.toUpperCase()} report… (first run can take ~30s while worker wakes)`;
   try {
-    const r = await fetch(`${WORKER_URL}/generate/${scope}`, {
+    const r = await fetch(`${getWorkerUrl()}/generate/${scope}`, {
       method: 'POST',
       headers: { 'X-Team-Password': teamPassword, 'Content-Type': 'application/json' },
       body: '{}',
