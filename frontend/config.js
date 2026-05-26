@@ -1,3 +1,4 @@
-// After deploying the Render worker, paste its public URL here and redeploy.
-// Or set it via the browser console: localStorage.setItem('workerUrl', 'https://...')
-window.__WORKER_URL__ = 'http://localhost:3001';
+// Default worker URL. Override per-browser via the "Worker URL" field on login
+// (saved to localStorage). For Cloudflare Quick Tunnel: update this string when
+// you restart the tunnel and the random hostname changes.
+window.__WORKER_URL__ = 'https://candles-damages-benz-mason.trycloudflare.com';

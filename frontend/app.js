@@ -24,8 +24,8 @@ const els = {
   copyStatus: $('#copy-status'),
 };
 
-// Pre-fill the worker URL input from whatever is currently saved.
-els.workerUrl.value = localStorage.getItem('workerUrl') || '';
+// Pre-fill with the saved override, falling back to the default from config.js.
+els.workerUrl.value = localStorage.getItem('workerUrl') || window.__WORKER_URL__ || '';
 
 let teamPassword = sessionStorage.getItem('teamPw') || '';
 let lastResult = null;
