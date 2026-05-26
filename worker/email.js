@@ -7,17 +7,6 @@ function fmtDate(iso) {
   return `${mm}/${dd}/${d.getFullYear()}`;
 }
 
-function table(html) {
-  return `<table cellspacing="0" cellpadding="6" border="0" style="border-collapse:collapse;font:13px Arial,sans-serif;width:100%;">${html}</table>`;
-}
-
-function renderTable({ headers, rows }) {
-  if (!headers?.length) return '<p style="color:#888;">(no data)</p>';
-  const head = `<thead><tr>${headers.map(h => `<th align="left" style="background:#f5f0ee;color:#5a1414;border-bottom:1px solid #d8c8c4;padding:6px 8px;">${escapeHtml(h)}</th>`).join('')}</tr></thead>`;
-  const body = `<tbody>${rows.map(r => `<tr>${r.map(c => `<td style="border-bottom:1px solid #eee;padding:6px 8px;">${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>`;
-  return table(head + body);
-}
-
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
