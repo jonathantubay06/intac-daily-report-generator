@@ -1,15 +1,6 @@
-// Frontend logic — talks to the Render worker.
-
 function getWorkerUrl() {
-  // Source of truth = config.js (auto-updated by launch.js on each tunnel start).
-  // Session-only override = whatever the user just typed into the Worker URL field.
-  // Nothing is persisted to localStorage — that caused stale URLs after tunnel restart.
   const sessionOverride = sessionStorage.getItem('workerUrl');
-  return (
-    sessionOverride ||
-    window.__WORKER_URL__ ||
-    'http://localhost:3001'
-  );
+  return sessionOverride || window.__WORKER_URL__ || 'http://localhost:3001';
 }
 
 const $ = (sel) => document.querySelector(sel);
@@ -23,20 +14,27 @@ const els = {
   status: $('#status'),
   preview: $('#preview'),
   previewFrame: $('#preview-frame'),
+  previewSubject: $('#preview-subject'),
   copySubject: $('#copy-subject'),
   copyHtml: $('#copy-html'),
   downloadEml: $('#download-eml'),
-  copyStatus: $('#copy-status'),
+  generatedAgo: $('#generated-ago'),
 };
 
-// Always show the current default (which the launcher auto-updates).
-// User can still edit for a one-off override; it lasts the session only.
 els.workerUrl.value = window.__WORKER_URL__ || '';
-// Clear any old localStorage cruft from earlier versions.
 localStorage.removeItem('workerUrl');
+
+// Theme toggle
+const themeToggle = $('#theme-toggle');
+themeToggle.addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem('theme', next);
+});
 
 let teamPassword = sessionStorage.getItem('teamPw') || '';
 let lastResult = null;
+let stageTimer = null;
 
 if (teamPassword) showDash();
 
@@ -44,17 +42,12 @@ els.loginBtn.addEventListener('click', async () => {
   const pw = els.teamPw.value.trim();
   if (!pw) return;
 
-  // Session-only override: if user typed something different from the default,
-  // honor it for this tab only. Closing the tab clears it.
   const typed = els.workerUrl.value.trim().replace(/\/+$/, '');
   const def = (window.__WORKER_URL__ || '').replace(/\/+$/, '');
-  if (typed && typed !== def) {
-    sessionStorage.setItem('workerUrl', typed);
-  } else {
-    sessionStorage.removeItem('workerUrl');
-  }
-  const workerUrl = getWorkerUrl();
+  if (typed && typed !== def) sessionStorage.setItem('workerUrl', typed);
+  else sessionStorage.removeItem('workerUrl');
 
+  const workerUrl = getWorkerUrl();
   els.loginErr.textContent = '';
   els.loginBtn.disabled = true;
   try {
@@ -78,29 +71,25 @@ els.copySubject.addEventListener('click', async () => {
   if (!lastResult?.subject) return;
   try {
     await navigator.clipboard.writeText(lastResult.subject);
-    els.copyStatus.textContent = `Subject copied: ${lastResult.subject}`;
+    flashCopied(els.copySubject, `Subject copied`);
   } catch (err) {
-    els.copyStatus.textContent = `Copy failed: ${err.message}`;
+    setStatus(els.status, `Copy failed: ${err.message}`, 'error');
   }
-  setTimeout(() => (els.copyStatus.textContent = ''), 4000);
 });
 
 els.copyHtml.addEventListener('click', async () => {
   if (!lastResult) return;
-  // Copy as both HTML and plain text so Outlook accepts the rich version
   const blob = new Blob([lastResult.html], { type: 'text/html' });
   const textBlob = new Blob([htmlToText(lastResult.html)], { type: 'text/plain' });
   try {
     await navigator.clipboard.write([
       new ClipboardItem({ 'text/html': blob, 'text/plain': textBlob }),
     ]);
-    els.copyStatus.textContent = 'Copied — paste into a new Outlook message';
+    flashCopied(els.copyHtml, 'Copied — paste into Outlook');
   } catch (err) {
-    // Fallback: text only
     await navigator.clipboard.writeText(lastResult.html);
-    els.copyStatus.textContent = 'Copied (as HTML source — paste into Outlook)';
+    flashCopied(els.copyHtml, 'Copied (HTML source)');
   }
-  setTimeout(() => (els.copyStatus.textContent = ''), 4000);
 });
 
 els.downloadEml.addEventListener('click', () => {
@@ -114,11 +103,12 @@ els.downloadEml.addEventListener('click', () => {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+  flashCopied(els.downloadEml, 'Downloaded');
 });
 
 async function generate(scope) {
   els.preview.classList.add('hidden');
-  els.status.textContent = `Generating ${scope.toUpperCase()} report… (first run can take ~30s while worker wakes)`;
+  startStageSimulation(scope);
   try {
     const r = await fetch(`${getWorkerUrl()}/generate/${scope}`, {
       method: 'POST',
@@ -130,6 +120,7 @@ async function generate(scope) {
       teamPassword = '';
       showLogin();
       els.loginErr.textContent = 'Bad team password';
+      stopStageSimulation();
       return;
     }
     if (!r.ok) {
@@ -138,11 +129,83 @@ async function generate(scope) {
     }
     lastResult = await r.json();
     els.previewFrame.srcdoc = lastResult.html;
+    if (lastResult.subject) {
+      els.previewSubject.innerHTML =
+        `<span class="subject-label">Subject</span>` +
+        `<span class="subject-value"></span>`;
+      els.previewSubject.querySelector('.subject-value').textContent = lastResult.subject;
+    } else {
+      els.previewSubject.innerHTML = '';
+    }
     els.preview.classList.remove('hidden');
-    els.status.textContent = `Generated ${scope.toUpperCase()} at ${new Date(lastResult.generatedAt).toLocaleString()}`;
+    stopStageSimulation();
+    setStatus(els.status, `✓ ${scope.toUpperCase()} report ready`, 'success');
+    startGeneratedAgo(lastResult.generatedAt);
   } catch (err) {
-    els.status.textContent = `Failed: ${err.message}`;
+    stopStageSimulation();
+    setStatus(els.status, friendlyError(err.message), 'error');
   }
+}
+
+function friendlyError(raw) {
+  if (!raw) return 'Generation failed.';
+  if (/timeout/i.test(raw) || /Timeout/.test(raw)) {
+    return 'Timed out reaching the CRM — the portal may be slow or down. Try again in a moment.';
+  }
+  if (/CRM login failed/i.test(raw)) {
+    return 'CRM rejected the login. Check the bot user credentials.';
+  }
+  if (/unreachable/i.test(raw) || /Failed to fetch/i.test(raw)) {
+    return 'Cannot reach the worker. The launcher may not be running.';
+  }
+  return `Failed: ${raw}`;
+}
+
+const STAGES = [
+  { at: 0,    label: 'Logging in to CRM…' },
+  { at: 2500, label: 'Capturing report sections…' },
+  { at: 7000, label: 'Building email…' },
+];
+function startStageSimulation(scope) {
+  stopStageSimulation();
+  const start = Date.now();
+  const tick = () => {
+    const elapsed = Date.now() - start;
+    const current = [...STAGES].reverse().find(s => elapsed >= s.at) || STAGES[0];
+    setStatus(els.status, `<span class="spinner"></span> ${current.label}`, '');
+  };
+  tick();
+  stageTimer = setInterval(tick, 400);
+}
+function stopStageSimulation() {
+  if (stageTimer) { clearInterval(stageTimer); stageTimer = null; }
+}
+
+let agoTimer = null;
+function startGeneratedAgo(iso) {
+  if (agoTimer) clearInterval(agoTimer);
+  const update = () => {
+    const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    let text;
+    if (secs < 60) text = `Generated ${secs}s ago`;
+    else if (secs < 3600) text = `Generated ${Math.floor(secs/60)}m ago`;
+    else text = `Generated ${Math.floor(secs/3600)}h ago`;
+    els.generatedAgo.textContent = text;
+  };
+  update();
+  agoTimer = setInterval(update, 5_000);
+}
+
+function setStatus(el, html, kind) {
+  el.innerHTML = html;
+  el.classList.remove('success', 'error');
+  if (kind) el.classList.add(kind);
+}
+
+function flashCopied(btn, statusText) {
+  btn.classList.add('copied');
+  setTimeout(() => btn.classList.remove('copied'), 600);
+  setStatus(els.status, `✓ ${statusText}`, 'success');
 }
 
 function showLogin() {
@@ -153,7 +216,6 @@ function showDash() {
   els.loginView.classList.add('hidden');
   els.dashView.classList.remove('hidden');
 }
-
 function htmlToText(html) {
   const d = document.createElement('div');
   d.innerHTML = html;
