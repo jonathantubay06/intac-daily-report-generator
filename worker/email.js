@@ -24,6 +24,12 @@ function bareImage(dataUri, alt) {
   return `<div style="margin-top:24px;"><img src="${dataUri}" alt="${escapeHtml(alt)}" style="max-width:100%;height:auto;"/></div>`;
 }
 
+export function buildSubject({ scope, report }) {
+  const recip = config.recipients[scope];
+  const date = fmtDate(report.generatedAt);
+  return recip.subject(date);
+}
+
 export function buildHtmlEmail({ scope, report }) {
   const label = scope === 'ga' ? 'GA' : 'Non-GA';
   const img = report.images || {};
