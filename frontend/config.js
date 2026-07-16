@@ -1,4 +1,4 @@
 // Default worker URL. Override per-browser via the "Worker URL" field on login
 // (saved to localStorage). For Cloudflare Quick Tunnel: update this string when
 // you restart the tunnel and the random hostname changes.
-window.__WORKER_URL__ = 'https://paragraphs-responsibilities-llp-parliament.trycloudflare.com';
+window.__WORKER_URL__ = 'https://claims-fantastic-specialists-statistical.trycloudflare.com';
