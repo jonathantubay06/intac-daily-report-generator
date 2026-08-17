@@ -6,7 +6,7 @@ echo ============================================
 echo            SENTRY REPORT TOOLS
 echo ============================================
 echo.
-echo   [1]  Restart  (stop then start both tools)
+echo   [1]  Restart  (stop then start all tools)
 echo   [2]  Stop     (shut everything down)
 echo   [3]  Exit
 echo.
@@ -32,9 +32,13 @@ timeout /t 2 /nobreak >nul
 
 echo Starting V3 BOL launcher...
 start "V3 BOL Report" cmd /k "cd /d "%~dp0..\V3 BOL daily report" && node launch.js"
+timeout /t 2 /nobreak >nul
+
+echo Starting Kingdomland launcher...
+start "Kingdomland Daily Report" cmd /k "cd /d "%~dp0..\kingdomland-daily-report" && node launch.js"
 
 echo.
-echo Done. Two launcher windows opened (keep them open).
+echo Done. Three launcher windows opened (keep them open).
 echo Netlify will redeploy each tool's URL in ~1 min.
 echo.
 echo This window can be closed.

@@ -47,8 +47,6 @@ export function buildHtmlEmail({ scope, report }) {
 
   ${bareImage(img.newPolicies, 'New policies bound — past 14 days')}
   ${bareImage(img.producerActivity, 'Producer activity — past 14 days')}
-
-  <p style="color:#888;font-size:12px;margin-top:24px;">Generated ${new Date(report.generatedAt).toLocaleString()}</p>
 </body></html>`;
 }
 

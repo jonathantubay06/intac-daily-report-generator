@@ -1,4 +1,4 @@
-// Reads the access.log from both report tools and prints a friendly usage summary.
+// Reads the access.log from every report tool and prints a friendly usage summary.
 // Run via "View Usage.bat" or: node usage-report.js
 
 import { readFile } from 'node:fs/promises';
@@ -9,6 +9,7 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const SOURCES = [
   { tool: 'Intac', file: path.join(ROOT, 'worker', 'access.log') },
   { tool: 'V3 BOL', file: path.join(ROOT, '..', 'V3 BOL daily report', 'worker', 'access.log') },
+  { tool: 'Kingdomland', file: path.join(ROOT, '..', 'kingdomland-daily-report', 'worker', 'access.log') },
 ];
 
 function device(ua = '') {
