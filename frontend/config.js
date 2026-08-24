@@ -1,4 +1,3 @@
-// Default worker URL. Override per-browser via the "Worker URL" field on login
-// (saved to localStorage). For Cloudflare Quick Tunnel: update this string when
-// you restart the tunnel and the random hostname changes.
-window.__WORKER_URL__ = 'https://fiscal-seq-len-rejected.trycloudflare.com';
+// Default worker URL — PERMANENT since 2026-08-25 migration (Tailscale Funnel on
+// Advin VPS, systemd services report-intac/report-v3bol/report-kdl). Never rotates.
+window.__WORKER_URL__ = 'https://edith-advinservers.tailccff23.ts.net';
