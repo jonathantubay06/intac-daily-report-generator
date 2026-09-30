@@ -27,17 +27,18 @@ function bareImage(dataUri, alt) {
 export function buildSubject({ scope, report }) {
   const recip = config.recipients[scope];
   const date = fmtDate(report.generatedAt);
-  return recip.subject(date);
+  return report.mode === 'daily' ? recip.dailySubject(date) : recip.subject(date);
 }
 
 export function buildHtmlEmail({ scope, report }) {
   const label = scope === 'ga' ? 'GA' : 'Non-GA';
+  const intro = report.mode === 'daily' ? 'Sharing Report for today' : `Sharing Report for ${label}`;
   const img = report.images || {};
 
   return `<!doctype html>
 <html><body style="font:14px Arial,sans-serif;color:#222;">
   <p>Hi Team,</p>
-  <p>Sharing Report for ${label}</p>
+  <p>${intro}</p>
 
   ${img.kpiCards ? `<img src="${img.kpiCards}" alt="Renewals summary" style="max-width:100%;height:auto;margin:8px 0;"/>` : ''}
 
@@ -65,7 +66,7 @@ function dataUriToBuffer(uri) {
 export function buildEml({ scope, report, html }) {
   const recip = config.recipients[scope];
   const date = fmtDate(report.generatedAt);
-  const subject = recip.subject(date);
+  const subject = buildSubject({ scope, report });
   const boundary = `----=_Part_${Date.now()}`;
   const altBoundary = `----=_Alt_${Date.now()}`;
 
@@ -132,7 +133,7 @@ ${imgParts}--${boundary}--\r
 
   const eml = `${headers}\r\n\r\n${body}`;
   return {
-    filename: `intac-daily-${scope}-${date.replace(/\//g, '-')}.eml`,
+    filename: `intac-${report.mode === 'daily' ? 'daily-report' : 'daily-' + scope}-${date.replace(/\//g, '-')}.eml`,
     content: Buffer.from(eml).toString('base64'),
     mime: 'message/rfc822',
   };

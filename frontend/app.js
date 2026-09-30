@@ -86,6 +86,21 @@ document.querySelectorAll('[data-scope]').forEach(btn => {
   btn.addEventListener('click', () => generate(btn.dataset.scope));
 });
 
+// Monday = GA + Non-GA with 30/60/90; Tue-Sun defaults to Daily (Non-GA only, no 30/60/90).
+const btnGa = $('#btn-ga');
+const btnNonGa = $('#btn-non-ga');
+function currentMode() {
+  return document.querySelector('input[name="mode"]:checked').value;
+}
+function applyMode() {
+  const daily = currentMode() === 'daily';
+  btnGa.classList.toggle('hidden', daily);
+  btnNonGa.textContent = daily ? 'Generate Daily Report' : 'Generate Non-GA';
+}
+document.querySelector(`input[name="mode"][value="${new Date().getDay() === 1 ? 'weekly' : 'daily'}"]`).checked = true;
+document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', applyMode));
+applyMode();
+
 els.copySubject.addEventListener('click', async () => {
   if (!lastResult?.subject) return;
   try {
@@ -136,7 +151,7 @@ async function generate(scope) {
         'X-User-Name': userName || 'Unknown',
         'Content-Type': 'application/json',
       },
-      body: '{}',
+      body: JSON.stringify({ mode: currentMode() }),
     });
     if (r.status === 401) {
       sessionStorage.removeItem('teamPw');
@@ -150,7 +165,12 @@ async function generate(scope) {
       const t = await r.text();
       throw new Error(t || r.statusText);
     }
-    lastResult = await r.json();
+    const result = await r.json();
+    // An older worker ignores `mode` and would return the full Monday report.
+    if (currentMode() === 'daily' && result.mode !== 'daily') {
+      throw new Error('Worker has not been updated for Daily mode yet');
+    }
+    lastResult = result;
     els.previewFrame.srcdoc = lastResult.html;
     if (lastResult.subject) {
       els.previewSubject.innerHTML =
@@ -162,7 +182,7 @@ async function generate(scope) {
     }
     els.preview.classList.remove('hidden');
     stopStageSimulation();
-    setStatus(els.status, `✓ ${scope.toUpperCase()} report ready`, 'success');
+    setStatus(els.status, `✓ ${lastResult.mode === 'daily' ? 'DAILY' : scope.toUpperCase()} report ready`, 'success');
     startGeneratedAgo(lastResult.generatedAt);
   } catch (err) {
     stopStageSimulation();

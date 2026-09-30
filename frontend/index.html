@@ -54,9 +54,13 @@
       <h2>Generate today's report</h2>
       <span class="whoami">Signed in as <strong id="whoami-name"></strong> · <a href="#" id="switch-user">not you?</a></span>
     </div>
+    <div class="row mode-row" role="radiogroup" aria-label="Report mode">
+      <label><input type="radio" name="mode" value="weekly" /> Monday (GA + Non-GA, with 30/60/90)</label>
+      <label><input type="radio" name="mode" value="daily" /> Daily (Tue–Fri)</label>
+    </div>
     <div class="row">
-      <button class="primary" data-scope="non-ga">Generate Non-GA</button>
-      <button class="primary" data-scope="ga">Generate GA</button>
+      <button class="primary" id="btn-non-ga" data-scope="non-ga">Generate Non-GA</button>
+      <button class="primary" id="btn-ga" data-scope="ga">Generate GA</button>
       <a class="link-btn" href="https://crm.intacadvisory.com/#/daily-report" target="_blank" rel="noopener noreferrer">Open Dashboard ↗</a>
     </div>
     <div id="status" class="status-pill"></div>

@@ -29,6 +29,8 @@ export const config = {
         'vananh.le@sentryxp.com',
       ],
       subject: (date) => `Intac Daily Reporting - Non-GA - ${date}`,
+      // Tue-Fri "Daily" mode reuses the Non-GA recipients with a plain subject.
+      dailySubject: (date) => `Intac Daily Reporting - ${date}`,
     },
     ga: {
       to: splitList(process.env.GA_TO) || [

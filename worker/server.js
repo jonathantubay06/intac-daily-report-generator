@@ -32,21 +32,26 @@ app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
   if (scope !== 'non-ga' && scope !== 'ga') {
     return res.status(400).json({ error: 'scope must be non-ga or ga' });
   }
+  // Tue-Fri "Daily" mode: Non-GA data, no 30/60/90 sections, plain subject.
+  const mode = req.body?.mode === 'daily' ? 'daily' : 'weekly';
+  if (mode === 'daily' && scope !== 'non-ga') {
+    return res.status(400).json({ error: 'daily mode uses non-ga' });
+  }
   const start = Date.now();
   const ua = req.headers['user-agent'] || '';
   const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
   const user = (req.headers['x-user-name'] || 'Unknown').toString().slice(0, 60);
   try {
-    const report = await generateReport(scope);
+    const report = await generateReport(scope, mode);
     const subject = buildSubject({ scope, report });
     const html = buildHtmlEmail({ scope, report });
     const eml = buildEml({ scope, report, html });
-    res.json({ scope, generatedAt: report.generatedAt, subject, html, eml, images: report.images });
-    logUsage({ scope, user, ok: true, durationMs: Date.now() - start, ip, ua });
+    res.json({ scope, mode, generatedAt: report.generatedAt, subject, html, eml, images: report.images });
+    logUsage({ scope, mode, user, ok: true, durationMs: Date.now() - start, ip, ua });
   } catch (err) {
     console.error(`[generate/${scope}] failed:`, err);
     res.status(500).json({ error: err.message || 'generation failed' });
-    logUsage({ scope, user, ok: false, durationMs: Date.now() - start, ip, ua, error: err.message });
+    logUsage({ scope, mode, user, ok: false, durationMs: Date.now() - start, ip, ua, error: err.message });
   }
 });
 

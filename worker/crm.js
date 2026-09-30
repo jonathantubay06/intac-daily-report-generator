@@ -27,7 +27,8 @@ const SEL = {
   renewalsTable: '.dr-table',
 };
 
-export async function generateReport(scope) {
+// mode 'daily' (Tue-Fri) sends only New policies + Producer activity (no KPI cards, no 30/60/90).
+export async function generateReport(scope, mode = 'weekly') {
   if (!config.crmUser || !config.crmPassword) {
     throw new Error('CRM_USER / CRM_PASSWORD not set');
   }
@@ -57,27 +58,32 @@ export async function generateReport(scope) {
       `,
     });
 
-    // Capture KPI cards before hiding them.
-    const kpiCards = await shotOf(page, `${SEL.renewalsSection} ${SEL.kpiGrid}`);
+    let kpiCards = null;
+    let renewals30 = null, renewals60 = null, renewals90 = null;
+    if (mode !== 'daily') {
+      // Capture KPI cards before hiding them.
+      kpiCards = await shotOf(page, `${SEL.renewalsSection} ${SEL.kpiGrid}`);
 
-    // Inside the renewals section: hide the duplicate section heading and the
-    // KPI grid so each 30/60/90 screenshot is filter-bar + summary + table only.
-    await page.addStyleTag({
-      content: `
-        ${SEL.renewalsSection} .dr-section-h,
-        ${SEL.renewalsSection} .dr-kpi-grid { display: none !important; }
-      `,
-    });
+      // Inside the renewals section: hide the duplicate section heading and the
+      // KPI grid so each 30/60/90 screenshot is filter-bar + summary + table only.
+      await page.addStyleTag({
+        content: `
+          ${SEL.renewalsSection} .dr-section-h,
+          ${SEL.renewalsSection} .dr-kpi-grid { display: none !important; }
+        `,
+      });
 
-    const renewals30 = await shotRenewalsAt(page, 30);
-    const renewals60 = await shotRenewalsAt(page, 60);
-    const renewals90 = await shotRenewalsAt(page, 90);
+      renewals30 = await shotRenewalsAt(page, 30);
+      renewals60 = await shotRenewalsAt(page, 60);
+      renewals90 = await shotRenewalsAt(page, 90);
+    }
 
     const newPolicies = await shotOf(page, SEL.newPoliciesSection);
     const producerActivity = await shotOf(page, SEL.producerActivitySection);
 
     return {
       scope,
+      mode,
       generatedAt: new Date().toISOString(),
       images: {
         kpiCards,
