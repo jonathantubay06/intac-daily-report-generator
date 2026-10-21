@@ -87,6 +87,8 @@ export function buildEml({ scope, report, html }) {
     `Subject: ${subject}`,
     `Date: ${new Date(report.generatedAt).toUTCString()}`,
     `MIME-Version: 1.0`,
+    // Outlook (classic) opens a file with this header as an editable unsent draft instead of a received message.
+    `X-Unsent: 1`,
     attachments.length
       ? `Content-Type: multipart/related; boundary="${boundary}"; type="multipart/alternative"`
       : `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
