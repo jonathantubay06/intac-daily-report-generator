@@ -39,7 +39,10 @@ export async function generateReport(scope, mode = 'weekly') {
 
   try {
     await login(page);
-    await page.goto(`${config.crmUrl}/#/daily-report`, { waitUntil: 'networkidle', timeout: NAV_TIMEOUT });
+    await page.goto(`${config.crmUrl}/#/daily-report`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+    // The CRM app keeps background requests open (mail assets), so 'networkidle' never fires; wait for the report UI instead.
+    await page.locator('.dr-pill-group').first().waitFor({ timeout: NAV_TIMEOUT });
+    await settle(page);
 
     await selectScopeTab(page, scope);
 
@@ -100,6 +103,12 @@ export async function generateReport(scope, mode = 'weekly') {
   }
 }
 
+// Short idle wait; never blocks long because the CRM never fully goes idle.
+async function settle(page) {
+  await page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(500);
+}
+
 async function login(page) {
   await page.goto(`${config.crmUrl}/login`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
   const user = config.crmUser.trim();
@@ -122,12 +131,12 @@ async function selectScopeTab(page, scope) {
   const label = scope === 'ga' ? 'GA' : 'Non-GA';
   // Several .dr-pill exist; the one inside .dr-pill-group with matching text is the scope filter.
   await page.locator(`.dr-pill-group ${SEL.scopePill(label)}`).first().click();
-  await page.waitForLoadState('networkidle', { timeout: NAV_TIMEOUT }).catch(() => {});
+  await settle(page);
 }
 
 async function shotRenewalsAt(page, days) {
   await page.locator(SEL.windowPill(days)).first().click();
-  await page.waitForLoadState('networkidle', { timeout: NAV_TIMEOUT }).catch(() => {});
+  await settle(page);
   await page.waitForTimeout(250);
   return shotOf(page, SEL.renewalsSection);
 }
