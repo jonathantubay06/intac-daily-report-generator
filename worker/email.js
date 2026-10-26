@@ -76,7 +76,7 @@ export function buildEml({ scope, report, html }) {
     const parsed = dataUriToBuffer(uri);
     if (!parsed) return `src=""`;
     const cid = `img${attachments.length}@intac.report`;
-    attachments.push({ cid, mime: parsed.mime, buf: parsed.buf, filename: `image${attachments.length}.png` });
+    attachments.push({ cid, mime: parsed.mime, buf: parsed.buf, filename: `image${attachments.length}.${parsed.mime.split('/')[1].replace('jpeg', 'jpg')}` });
     return `src="cid:${cid}"`;
   });
 

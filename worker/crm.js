@@ -34,7 +34,7 @@ export async function generateReport(scope, mode = 'weekly') {
   }
 
   const browser = await chromium.launch({ headless: true });
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 2 });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
 
   try {
@@ -42,6 +42,7 @@ export async function generateReport(scope, mode = 'weekly') {
     await page.goto(`${config.crmUrl}/#/daily-report`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
     // The CRM app keeps background requests open (mail assets), so 'networkidle' never fires; wait for the report UI instead.
     await page.locator('.dr-pill-group').first().waitFor({ timeout: NAV_TIMEOUT });
+    await page.locator(SEL.kpiGrid).first().waitFor({ timeout: NAV_TIMEOUT }).catch(() => {});
     await settle(page);
 
     await selectScopeTab(page, scope);
@@ -103,11 +104,20 @@ export async function generateReport(scope, mode = 'weekly') {
   }
 }
 
-// Short idle wait; never blocks long because the CRM never fully goes idle.
-async function settle(page) {
-  await page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {});
-  await page.waitForTimeout(500);
+// The CRM never goes network-idle, so after an action wait for the watched element's text to change
+// (up to maxMs; unchanged content just costs the timeout), then a short pause for layout.
+async function settle(page, selector, before, maxMs = 6000) {
+  if (selector && before !== undefined) {
+    await page.waitForFunction(
+      ([sel, old]) => { const el = document.querySelector(sel); return el && el.innerText !== old; },
+      [selector, before],
+      { timeout: maxMs }
+    ).catch(() => {});
+  }
+  await page.waitForTimeout(350);
 }
+
+const textOf = (page, selector) => page.locator(selector).first().innerText().catch(() => '');
 
 async function login(page) {
   await page.goto(`${config.crmUrl}/login`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
@@ -130,20 +140,21 @@ async function login(page) {
 async function selectScopeTab(page, scope) {
   const label = scope === 'ga' ? 'GA' : 'Non-GA';
   // Several .dr-pill exist; the one inside .dr-pill-group with matching text is the scope filter.
+  const before = await textOf(page, SEL.renewalsSection);
   await page.locator(`.dr-pill-group ${SEL.scopePill(label)}`).first().click();
-  await settle(page);
+  await settle(page, SEL.renewalsSection, before);
 }
 
 async function shotRenewalsAt(page, days) {
+  const before = await textOf(page, SEL.renewalsSection);
   await page.locator(SEL.windowPill(days)).first().click();
-  await settle(page);
-  await page.waitForTimeout(250);
+  await settle(page, SEL.renewalsSection, before);
   return shotOf(page, SEL.renewalsSection);
 }
 
 async function shotOf(page, selector) {
   const el = page.locator(selector).first();
   await el.scrollIntoViewIfNeeded();
-  const buf = await el.screenshot({ type: 'png' });
-  return `data:image/png;base64,${buf.toString('base64')}`;
+  const buf = await el.screenshot({ type: 'jpeg', quality: 85 });
+  return `data:image/jpeg;base64,${buf.toString('base64')}`;
 }

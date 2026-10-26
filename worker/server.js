@@ -46,7 +46,7 @@ app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
     const subject = buildSubject({ scope, report });
     const html = buildHtmlEmail({ scope, report });
     const eml = buildEml({ scope, report, html });
-    res.json({ scope, mode, generatedAt: report.generatedAt, subject, html, eml, images: report.images });
+    res.json({ scope, mode, generatedAt: report.generatedAt, subject, html, eml });
     logUsage({ scope, mode, user, ok: true, durationMs: Date.now() - start, ip, ua });
   } catch (err) {
     console.error(`[generate/${scope}] failed:`, err);
