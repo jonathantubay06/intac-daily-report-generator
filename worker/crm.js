@@ -59,6 +59,8 @@ export async function generateReport(scope, mode = 'weekly') {
         .topbar, header.topbar { position: static !important; }
         #banner-host { display: none !important; }
         .lead-view-backdrop, .lead-view { display: none !important; }
+        /* "What's new in Intac One" card (added Nov 2026) and the round chat dock button float over the tables. */
+        .wn-card, .ch-dock { display: none !important; }
       `,
     });
 
