@@ -157,6 +157,6 @@ async function shotRenewalsAt(page, days) {
 async function shotOf(page, selector) {
   const el = page.locator(selector).first();
   await el.scrollIntoViewIfNeeded();
-  const buf = await el.screenshot({ type: 'jpeg', quality: 85 });
+  const buf = await el.screenshot({ type: 'jpeg', quality: 70 });
   return `data:image/jpeg;base64,${buf.toString('base64')}`;
 }

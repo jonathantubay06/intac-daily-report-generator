@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { appendFile } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
 import { config } from './config.js';
 import { generateReport } from './crm.js';
 import { buildHtmlEmail, buildEml, buildSubject } from './email.js';
@@ -46,7 +47,15 @@ app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
     const subject = buildSubject({ scope, report });
     const html = buildHtmlEmail({ scope, report });
     const eml = buildEml({ scope, report, html });
-    res.json({ scope, mode, generatedAt: report.generatedAt, subject, html, eml });
+    // The reply carries the screenshots twice (html + eml), several MB: gzip it so it fits through the Tailscale funnel.
+    const payload = Buffer.from(JSON.stringify({ scope, mode, generatedAt: report.generatedAt, subject, html, eml }));
+    res.set('Content-Type', 'application/json; charset=utf-8');
+    if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+      res.set('Content-Encoding', 'gzip');
+      res.send(gzipSync(payload));
+    } else {
+      res.send(payload);
+    }
     logUsage({ scope, mode, user, ok: true, durationMs: Date.now() - start, ip, ua });
   } catch (err) {
     console.error(`[generate/${scope}] failed:`, err);
