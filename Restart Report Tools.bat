@@ -1,55 +1,47 @@
 @echo off
-title Sentry Report Tools
+title Sentry Report Tools (Advin)
 :menu
 cls
 echo ============================================
 echo            SENTRY REPORT TOOLS
+echo        (engines live on Advin VPS)
 echo ============================================
 echo.
-echo   [1]  Restart  (stop then start all tools)
-echo   [2]  Stop     (shut everything down)
-echo   [3]  Exit
+echo   [1]  Restart   (all three workers)
+echo   [2]  Stop      (all three workers)
+echo   [3]  Status    (health check)
+echo   [4]  Exit
 echo.
-set /p choice="Choose 1, 2, or 3: "
+set /p choice="Choose 1, 2, 3, or 4: "
 
 if "%choice%"=="1" goto restart
 if "%choice%"=="2" goto stop
-if "%choice%"=="3" exit
+if "%choice%"=="3" goto status
+if "%choice%"=="4" exit
 echo Invalid choice.
 timeout /t 2 /nobreak >nul
 goto menu
 
 :restart
 echo.
-echo Stopping existing workers and tunnels...
-taskkill /F /IM cloudflared.exe >nul 2>&1
-taskkill /F /IM node.exe >nul 2>&1
-timeout /t 2 /nobreak >nul
-
-echo Starting Intac launcher...
-start "Intac Daily Report" cmd /k "cd /d "%~dp0" && node launch.js"
-timeout /t 2 /nobreak >nul
-
-echo Starting V3 BOL launcher...
-start "V3 BOL Report" cmd /k "cd /d "%~dp0..\V3 BOL daily report" && node launch.js"
-timeout /t 2 /nobreak >nul
-
-echo Starting Kingdomland launcher...
-start "Kingdomland Daily Report" cmd /k "cd /d "%~dp0..\kingdomland-daily-report" && node launch.js"
-
+echo Restarting report-intac, report-v3bol, report-kdl ...
+ssh -o BatchMode=yes root@100.122.8.49 "/opt/reporttools/scripts/restart-all.sh"
 echo.
-echo Done. Three launcher windows opened (keep them open).
-echo Netlify will redeploy each tool's URL in ~1 min.
-echo.
-echo This window can be closed.
-timeout /t 6 /nobreak >nul
+echo Done. Public URLs NEVER change - nothing else to do.
+timeout /t 4 /nobreak >nul
 exit
 
 :stop
 echo.
-echo Stopping all report workers and tunnels...
-taskkill /F /IM cloudflared.exe >nul 2>&1
-taskkill /F /IM node.exe >nul 2>&1
-echo Done. All workers and tunnels stopped.
-timeout /t 3 /nobreak >nul
+echo Stopping all three workers...
+ssh -o BatchMode=yes root@100.122.8.49 "systemctl stop report-intac report-v3bol report-kdl && echo stopped"
+echo NOTE: sites will show 'Cannot reach worker' until restarted.
+timeout /t 4 /nobreak >nul
 exit
+
+:status
+echo.
+ssh -o BatchMode=yes root@100.122.8.49 "/opt/reporttools/scripts/status.sh"
+echo.
+pause
+goto menu

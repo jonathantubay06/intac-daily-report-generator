@@ -13,3 +13,10 @@ test-results/
 
 # generated report drafts contain client data
 reports/
+
+# CRM login session cookies (worker/crm.js)
+worker/.crm-session.json
+.crm-session.json
+
+# Netlify CLI local state
+.netlify/

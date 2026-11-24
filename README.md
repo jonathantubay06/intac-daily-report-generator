@@ -1,26 +1,28 @@
 # Intac Daily Report Generator
 
-One-click generator for the Intac Advisory CRM daily report email (Non-GA and GA). Logs into the CRM, screenshots each section (KPI cards, 30/60/90-day renewals, New Policies Bound, Producer Activity), and produces a clean HTML email ready to paste into Outlook — or downloads it as an `.eml` file.
+Owner: Intac (client tool), run by Jojo on his Advin VPS.
+
+One-click generator for the Intac Advisory CRM daily report email (Non-GA and GA). Logs into the CRM, screenshots each section (KPI cards, 30/60/90-day renewals, New Policies Bound, Producer Activity), and produces a clean HTML email ready to paste into Outlook, or downloads it as an `.eml` draft.
 
 ## Architecture
 
 ```
-You ──browser──▶ Netlify (frontend) ──fetch──▶ https://23-137-105-53.sslip.io (Caddy on the Advin VPS) ──▶ worker :3001 (systemd report-intac) ──Playwright──▶ crm.intacadvisory.com
-
-> Hosting since 2026-11-24: the worker runs on the Advin VPS (`/opt/reporttools/intac`), reached directly over HTTPS through Caddy (config `/etc/caddy/Caddyfile`, only `/health` and `/generate/*` are proxied). Tailscale Funnel (`alison-relay-vps.tailea90ac.ts.net`) reaches the same worker but is bandwidth-limited, so large weekly replies stall there. The Local PC and Quick Tunnel notes below are the old setup (`launch.js` is retired; see `LOCAL-FALLBACK.md`).
+browser ──▶ Netlify (frontend) ──fetch──▶ https://23-137-105-53.sslip.io (Caddy, Advin VPS)
+        ──▶ worker :3001 (systemd report-intac, /opt/reporttools/intac) ──Playwright──▶ crm.intacadvisory.com
 ```
 
-- **`frontend/`** — static site served by Netlify (free tier). Login screen, "Generate Non-GA" / "Generate GA" buttons, live preview, `Copy HTML` / `Download .eml` handoff.
-- **`worker/`** — Node + Express + Playwright. Runs on your local PC on port 3001. Logs into the CRM as Nick, navigates to Daily Report, screenshots each report section with chrome (sticky topbar, password banner, section headings, KPI grid where redundant) hidden first.
-- **`launch.js` / `launch.bat`** — single-command boot: starts the worker, starts a Cloudflare Quick Tunnel pointed at `localhost:3001`, captures the random `*.trycloudflare.com` URL, writes it into `frontend/config.js`, and pushes so Netlify auto-redeploys with the fresh URL.
+- **`frontend/`**: static site on Netlify (intac-daily-reporting.netlify.app). Login screen, Monday/Daily switch, "Generate Non-GA" / "Generate GA", preview, `Copy HTML` / `Download .eml`. `config.js` holds the worker URL.
+- **`worker/`**: Node + Express + Playwright on the VPS. Logs into the CRM (saved session reused for up to 8 h), opens Daily Report in US Central time, hides floating CRM widgets and screenshots each section.
+- Caddy passes only `/health`, `/generate/*` and `/eml/*`. Tailscale Funnel (`alison-relay-vps.tailea90ac.ts.net`) reaches the same worker as a slow fallback.
+- VPS operations (status, restart, deploy steps): `/opt/reporttools/README.md` on the VPS.
 
 ## Daily flow
 
-Already on autopilot via a Windows scheduled task (`IntacReportLauncher`) that runs `launch.bat` at user logon. After login:
+1. Open <https://intac-daily-reporting.netlify.app>, sign in with your name and the team password.
+2. Monday (US day) is pre-selected on Mondays, Daily (Tue-Fri) otherwise. Click `Generate Non-GA` (and `Generate GA` on Mondays).
+3. `Copy HTML` into a new Outlook message, or `Download .eml` and open it as a draft. Recipients are added in Outlook (the draft has none on purpose).
 
-1. A console window opens; the worker + tunnel come up; the tunnel URL is pushed to Netlify.
-2. Open <https://intac-daily-reporting.netlify.app>, sign in with the team password, click `Generate Non-GA` or `Generate GA`.
-3. `Copy HTML` → new Outlook message → Ctrl+V → Send. Or `Download .eml` → double-click → opens pre-filled in Outlook.
+If the VPS is down: `LOCAL-FALLBACK.md` (double-click `Generate Reports Locally.bat`).
 
 ## Local development
 
@@ -28,47 +30,43 @@ Already on autopilot via a Windows scheduled task (`IntacReportLauncher`) that r
 cd worker
 npm install
 npx playwright install chromium
-cp .env.example .env
-# Fill CRM_USER, CRM_PASSWORD, TEAM_PASSWORD
+cp .env.example .env   # fill CRM_USER, CRM_PASSWORD, TEAM_PASSWORD
+node server.js         # worker on :3001
 ```
 
-Then from the repo root:
-
-```bash
-node launch.js
-```
-
-Or double-click `launch.bat`. Open <http://localhost:3000> (start a static server in `frontend/`, e.g. `npx serve frontend -l 3000`) or just open `frontend/index.html` directly.
+Serve `frontend/` (e.g. `npx serve frontend -l 3000`) and put `http://localhost:3001` in the Worker URL field on the sign-in screen.
 
 ## When the CRM changes
 
-If a section disappears or starts coming back blank, the most likely cause is CSS class/text changes in the CRM. The selectors live in [`worker/crm.js`](worker/crm.js) under `SEL`.
-
-To pin new selectors, set `DEBUG_DUMP=1` in `worker/.env`, restart, click Generate. The worker writes `worker/debug-non-ga.html` with the current DOM — inspect that and update the `SEL` object.
+A blank or tiny section triggers an alert (see below). The selectors live in [`worker/crm.js`](worker/crm.js) under `SEL`. Set `DEBUG_DUMP=1` in `worker/.env`, restart, click Generate: the worker writes `worker/debug-non-ga.html` with the current DOM to compare against.
 
 ## Files
 
 ```
 report-generator/
-├── README.md            ← you are here
-├── launch.js / .bat     ← one-shot boot (worker + tunnel + push)
-├── netlify.toml         ← Netlify build config (publish frontend/)
-├── frontend/
-│   ├── index.html       ← login + Generate buttons + preview
-│   ├── app.js           ← fetch worker, copy HTML, download .eml
-│   ├── config.js        ← auto-updated tunnel URL (never cached)
-│   └── styles.css
+├── README.md                    you are here
+├── LOCAL-FALLBACK.md            what to do when the VPS is down
+├── Generate Reports Locally.bat local fallback (runs worker/local-report.mjs)
+├── Restart Report Tools.bat     restart / stop / status of the VPS workers over SSH
+├── View Usage.bat               who generated what (reads the VPS logs)
+├── netlify.toml                 Netlify config (publish frontend/, skip builds without frontend changes)
+├── frontend/                    index.html, app.js, config.js (worker URL), styles.css
 └── worker/
-    ├── server.js        ← Express, /generate/:scope, usage log
-    ├── crm.js           ← Playwright login + section screenshots
-    ├── email.js         ← HTML email + .eml builder
-    ├── config.js        ← env + recipients
-    ├── .env.example
-    └── package.json
+    ├── server.js                Express routes: /health, /generate/:scope, /eml/:id
+    ├── ops.js                   logs, time zones, alerts, password guard, .eml cache, one-at-a-time
+    ├── crm.js                   Playwright: CRM login/session + section screenshots
+    ├── email.js                 HTML email + .eml builder
+    ├── config.js                env + recipients
+    ├── local-report.mjs         local fallback generator
+    └── .env.example
 ```
 
-## Logs and time zones (since 2026-11-24)
+## Logs, time zones and safety (since 2026-11-24)
 
-- Dates the client sees (report "today", ranges, email subject and body) use US Central (`REPORT_TIMEZONE`, default `America/Chicago`).
-- `worker/access.log` has one JSON line per request (not `/health`): `ts` (UTC), `logTime` (Philippine time, `LOG_TIMEZONE`), `id`, `status`, `event` (`finish` or `aborted`), `user`, `userTz`, scope/range, `buildMs`, `totalMs`, `bytes`, `gzip`, `ip`, `ua`, `error`. The same `id` comes back as the `X-Request-Id` header and in error messages as "(ref ...)". Code: `worker/request-log.js`.
-- On the VPS: `tail -f /opt/reporttools/<tool>/worker/access.log` or `journalctl -u report-<tool> -f`.
+All of this lives in `worker/ops.js` (the same file in the Intac, V3 BOL and Kingdomland workers).
+
+- **Time zones.** Dates the client sees (report "today", date ranges, email subject and body) use US Central (`REPORT_TIMEZONE`, default `America/Chicago`); the headless browser runs in that zone too. Log times are Philippine time (`LOG_TIMEZONE`, default `Asia/Manila`) for debugging.
+- **Transaction log.** `worker/access.log` gets one JSON line per request (not `/health`): `ts` (UTC), `logTime`, `id`, `status`, `event` (`finish` or `aborted`), `user`, `userTz`, scope/range, `buildMs`, `totalMs`, `bytes`, `gzip`, `ip`, `ua`, `warnings`, `error`. The same `id` is returned as the `X-Request-Id` header and shown in page errors as "(ref ...)". On the VPS: `tail -f /opt/reporttools/<tool>/worker/access.log` or `journalctl -u report-<tool> -f`. The file is rotated weekly by `/etc/logrotate.d/reporttools`.
+- **Alerts.** A failed report, a report that was built but never reached the page, a report with suspiciously small screenshots, and a blocked password guesser are sent to Jojo's alert hub on the VPS (`ALERT_HUB_KEY` in the worker `.env`); the hub handles muting and repeats.
+- **Team password.** Checked in constant time; an address with 10 wrong passwords in an hour gets HTTP 429 for the rest of that hour (`LOGIN_FAIL_LIMIT`).
+- **Smaller replies.** The web page sends `X-Eml-On-Demand: 1`, so the reply leaves out the `.eml` (and V3's raw images), which repeat every screenshot; Download fetches `GET /eml/<id>` (kept 30 minutes). Scripted callers without that header, such as Emmi's GitHub flow, still get the full reply. Replies are gzipped when the caller accepts gzip.

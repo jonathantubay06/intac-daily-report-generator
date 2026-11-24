@@ -4,8 +4,11 @@ function required(name) {
   return v;
 }
 
+// Unset variable -> null, so `splitList(x) || default` uses the default.
+// Set but empty (NAME=) -> [] and means "none" on purpose.
 function splitList(s) {
-  return (s || '').split(',').map(x => x.trim()).filter(Boolean);
+  if (s === undefined) return null;
+  return s.split(',').map(x => x.trim()).filter(Boolean);
 }
 
 export const config = {
@@ -13,7 +16,7 @@ export const config = {
   crmUser: process.env.CRM_USER || '',
   crmPassword: process.env.CRM_PASSWORD || '',
 
-  teamPassword: process.env.TEAM_PASSWORD || 'change-me',
+  teamPassword: process.env.TEAM_PASSWORD || (() => { throw new Error('TEAM_PASSWORD is not set in .env'); })(),
 
   allowedOrigins: splitList(process.env.ALLOWED_ORIGINS) || ['*'],
 

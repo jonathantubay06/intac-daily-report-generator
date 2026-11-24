@@ -1,9 +1,24 @@
 import { chromium } from 'playwright';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, stat, chmod } from 'node:fs/promises';
 import { config } from './config.js';
 
 const DEBUG = process.env.DEBUG_DUMP === '1';
 const NAV_TIMEOUT = 30_000;
+
+// Logged-in CRM session kept between runs so most reports skip the ~6 s login. Holds session cookies:
+// gitignored, file mode 600, and dropped after SESSION_MAX_AGE_MS or as soon as it stops working.
+const SESSION_FILE = '.crm-session.json';
+const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+const SESSION_CHECK_MS = 8_000;
+
+async function savedSession() {
+  try {
+    const s = await stat(SESSION_FILE);
+    return Date.now() - s.mtimeMs < SESSION_MAX_AGE_MS ? SESSION_FILE : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const SEL = {
   // Login
@@ -34,15 +49,27 @@ export async function generateReport(scope, mode = 'weekly', timeZone = 'America
     throw new Error('CRM_USER / CRM_PASSWORD not set');
   }
 
+  const session = await savedSession();
   const browser = await chromium.launch({ headless: true });
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1, timezoneId: timeZone });
-  const page = await ctx.newPage();
-
+  let ctx;
   try {
-    await login(page);
-    await page.goto(`${config.crmUrl}/#/daily-report`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+    const opts = { viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1, timezoneId: timeZone };
+    // A damaged session file must not block the report: fall back to a fresh login.
+    ctx = await browser.newContext({ ...opts, storageState: session }).catch(() => browser.newContext(opts));
+    const page = await ctx.newPage();
+
     // The CRM app keeps background requests open (mail assets), so 'networkidle' never fires; wait for the report UI instead.
-    await page.locator('.dr-pill-group').first().waitFor({ timeout: NAV_TIMEOUT });
+    const openReport = async (timeout) => {
+      await page.goto(`${config.crmUrl}/#/daily-report`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+      return page.locator('.dr-pill-group').first().waitFor({ timeout }).then(() => true, () => false);
+    };
+    // Try the saved session first; if the report page does not appear, log in fresh and save the new session.
+    if (!session || !(await openReport(SESSION_CHECK_MS))) {
+      await login(page);
+      await ctx.storageState({ path: SESSION_FILE });
+      await chmod(SESSION_FILE, 0o600).catch(() => {});
+      if (!(await openReport(NAV_TIMEOUT))) throw new Error('CRM daily report page did not load after login');
+    }
     await page.locator(SEL.kpiGrid).first().waitFor({ timeout: NAV_TIMEOUT }).catch(() => {});
     await settle(page);
 
@@ -103,8 +130,9 @@ export async function generateReport(scope, mode = 'weekly', timeZone = 'America
       },
     };
   } finally {
-    await ctx.close();
-    await browser.close();
+    // Always shut the browser, even if the context never opened.
+    await ctx?.close().catch(() => {});
+    await browser.close().catch(() => {});
   }
 }
 
@@ -162,7 +190,21 @@ async function clickPill(page, pill) {
   await settle(page, SEL.renewalsSection, before);
 }
 
+// Hide anything floating (position: fixed) that is not part of the report, right before each screenshot.
+// The CRM keeps adding floating UI (Nov 2026: the "What's new" card and the chat dock covered the tables);
+// this catches new ones without a code change. Elements that hold report sections are left alone.
+async function hideFloatingUi(page) {
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll('body *')) {
+      if (getComputedStyle(el).position !== 'fixed') continue;
+      if (el.closest('section.dr-section') || el.querySelector('section.dr-section')) continue;
+      el.style.setProperty('display', 'none', 'important');
+    }
+  });
+}
+
 async function shotOf(page, selector) {
+  await hideFloatingUi(page);
   const el = page.locator(selector).first();
   await el.scrollIntoViewIfNeeded();
   const buf = await el.screenshot({ type: 'jpeg', quality: 70 });

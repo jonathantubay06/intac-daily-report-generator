@@ -2,26 +2,36 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { gzipSync } from 'node:zlib';
-import { transactionLog, REPORT_TZ } from './request-log.js';
 import { config } from './config.js';
 import { generateReport } from './crm.js';
 import { buildHtmlEmail, buildEml, buildSubject } from './email.js';
+import {
+  transactionLog, teamPasswordGuard, REPORT_TZ,
+  stashEml, emlRoute, wantsEmlOnDemand, checkImages, runExclusive,
+} from './ops.js';
 
+const TOOL = 'intac';
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(cors({ origin: config.allowedOrigins, credentials: false }));
-// One log line per request (see request-log.js): UTC + Philippine time, user, timings, size, errors.
-app.use(transactionLog('intac'));
+// One log line per request, alerts on failures (see ops.js).
+app.use(transactionLog(TOOL));
+const requireTeamPassword = teamPasswordGuard(TOOL, config.teamPassword);
 
-function requireTeamPassword(req, res, next) {
-  const token = req.headers['x-team-password'];
-  if (!token || token !== config.teamPassword) {
-    return res.status(401).json({ error: 'unauthorized' });
+// Large replies (screenshots): gzip when the client accepts it.
+function sendJson(req, res, obj) {
+  const payload = Buffer.from(JSON.stringify(obj));
+  res.set('Content-Type', 'application/json; charset=utf-8');
+  if (/gzip/.test(req.headers['accept-encoding'] || '')) {
+    res.set('Content-Encoding', 'gzip');
+    return res.send(gzipSync(payload));
   }
-  next();
+  return res.send(payload);
 }
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+app.get('/eml/:id', requireTeamPassword, emlRoute);
 
 app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
   const scope = req.params.scope;
@@ -36,21 +46,22 @@ app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
   req.ctx.extra = { scope, mode };
   const start = Date.now();
   try {
-    // Dates the client sees (CRM "today", subject date) are US Central; see request-log.js.
-    const report = await generateReport(scope, mode, REPORT_TZ);
+    // Dates the client sees (CRM "today", subject date) are US Central; see ops.js.
+    // One report at a time per worker (shared CRM session); a second request waits for the first.
+    const report = await runExclusive(() => generateReport(scope, mode, REPORT_TZ));
     req.ctx.buildMs = Date.now() - start;
+    req.ctx.warnings.push(...checkImages(report.images));
     const subject = buildSubject({ scope, report });
     const html = buildHtmlEmail({ scope, report });
     const eml = buildEml({ scope, report, html });
-    // The reply carries the screenshots twice (html + eml), several MB: gzip it when the client accepts gzip.
-    const payload = Buffer.from(JSON.stringify({ scope, mode, generatedAt: report.generatedAt, requestId: req.ctx.id, subject, html, eml }));
-    res.set('Content-Type', 'application/json; charset=utf-8');
-    if (/gzip/.test(req.headers['accept-encoding'] || '')) {
-      res.set('Content-Encoding', 'gzip');
-      res.send(gzipSync(payload));
+    const reply = { scope, mode, generatedAt: report.generatedAt, requestId: req.ctx.id, warnings: req.ctx.warnings, subject, html };
+    if (wantsEmlOnDemand(req)) {
+      stashEml(req.ctx.id, eml);
+      reply.emlId = req.ctx.id;
     } else {
-      res.send(payload);
+      reply.eml = eml;
     }
+    sendJson(req, res, reply);
   } catch (err) {
     console.error(`[generate/${scope}] ${req.ctx.id} failed:`, err);
     req.ctx.buildMs = Date.now() - start;

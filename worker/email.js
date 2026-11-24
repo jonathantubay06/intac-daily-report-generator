@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { fmtDateInTz, REPORT_TZ } from './request-log.js';
+import { fmtDateInTz, REPORT_TZ } from './ops.js';
 
 // Client-facing date (subject line): the report's US timezone, not the server's clock.
 function fmtDate(iso, timeZone = REPORT_TZ) {
