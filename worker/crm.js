@@ -142,16 +142,22 @@ async function login(page) {
 async function selectScopeTab(page, scope) {
   const label = scope === 'ga' ? 'GA' : 'Non-GA';
   // Several .dr-pill exist; the one inside .dr-pill-group with matching text is the scope filter.
-  const before = await textOf(page, SEL.renewalsSection);
-  await page.locator(`.dr-pill-group ${SEL.scopePill(label)}`).first().click();
-  await settle(page, SEL.renewalsSection, before);
+  await clickPill(page, page.locator(`.dr-pill-group ${SEL.scopePill(label)}`).first());
 }
 
 async function shotRenewalsAt(page, days) {
-  const before = await textOf(page, SEL.renewalsSection);
-  await page.locator(SEL.windowPill(days)).first().click();
-  await settle(page, SEL.renewalsSection, before);
+  await clickPill(page, page.locator(SEL.windowPill(days)).first());
   return shotOf(page, SEL.renewalsSection);
+}
+
+// A pill that is already selected ("is-active") changes nothing when clicked, so skip the click and the
+// 6 s wait for a change that never comes (that wait was about half of a weekly report's run time).
+async function clickPill(page, pill) {
+  const isActive = await pill.evaluate((el) => el.classList.contains('is-active')).catch(() => false);
+  if (isActive) return;
+  const before = await textOf(page, SEL.renewalsSection);
+  await pill.click();
+  await settle(page, SEL.renewalsSection, before);
 }
 
 async function shotOf(page, selector) {

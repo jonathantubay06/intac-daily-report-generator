@@ -5,7 +5,9 @@ One-click generator for the Intac Advisory CRM daily report email (Non-GA and GA
 ## Architecture
 
 ```
-You ──browser──▶ Netlify (frontend) ──fetch──▶ Cloudflare Quick Tunnel ──▶ Local PC :3001 ──Playwright──▶ crm.intacadvisory.com
+You ──browser──▶ Netlify (frontend) ──fetch──▶ https://23-137-105-53.sslip.io (Caddy on the Advin VPS) ──▶ worker :3001 (systemd report-intac) ──Playwright──▶ crm.intacadvisory.com
+
+> Hosting since 2026-11-24: the worker runs on the Advin VPS (`/opt/reporttools/intac`), reached directly over HTTPS through Caddy (config `/etc/caddy/Caddyfile`, only `/health` and `/generate/*` are proxied). Tailscale Funnel (`alison-relay-vps.tailea90ac.ts.net`) reaches the same worker but is bandwidth-limited, so large weekly replies stall there. The Local PC and Quick Tunnel notes below are the old setup (`launch.js` is retired; see `LOCAL-FALLBACK.md`).
 ```
 
 - **`frontend/`** — static site served by Netlify (free tier). Login screen, "Generate Non-GA" / "Generate GA" buttons, live preview, `Copy HTML` / `Download .eml` handoff.
