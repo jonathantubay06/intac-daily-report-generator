@@ -1,22 +1,17 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { appendFile } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
+import { transactionLog, REPORT_TZ } from './request-log.js';
 import { config } from './config.js';
 import { generateReport } from './crm.js';
 import { buildHtmlEmail, buildEml, buildSubject } from './email.js';
 
-async function logUsage(entry) {
-  const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
-  try { await appendFile('access.log', line); } catch {}
-  // Also echo to stdout so it shows up in the launcher console.
-  console.log('[usage]', line.trim());
-}
-
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(cors({ origin: config.allowedOrigins, credentials: false }));
+// One log line per request (see request-log.js): UTC + Philippine time, user, timings, size, errors.
+app.use(transactionLog('intac'));
 
 function requireTeamPassword(req, res, next) {
   const token = req.headers['x-team-password'];
@@ -38,29 +33,29 @@ app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
   if (mode === 'daily' && scope !== 'non-ga') {
     return res.status(400).json({ error: 'daily mode uses non-ga' });
   }
+  req.ctx.extra = { scope, mode };
   const start = Date.now();
-  const ua = req.headers['user-agent'] || '';
-  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
-  const user = (req.headers['x-user-name'] || 'Unknown').toString().slice(0, 60);
   try {
-    const report = await generateReport(scope, mode);
+    // Dates the client sees (CRM "today", subject date) are US Central; see request-log.js.
+    const report = await generateReport(scope, mode, REPORT_TZ);
+    req.ctx.buildMs = Date.now() - start;
     const subject = buildSubject({ scope, report });
     const html = buildHtmlEmail({ scope, report });
     const eml = buildEml({ scope, report, html });
-    // The reply carries the screenshots twice (html + eml), several MB: gzip it so it fits through the Tailscale funnel.
-    const payload = Buffer.from(JSON.stringify({ scope, mode, generatedAt: report.generatedAt, subject, html, eml }));
+    // The reply carries the screenshots twice (html + eml), several MB: gzip it when the client accepts gzip.
+    const payload = Buffer.from(JSON.stringify({ scope, mode, generatedAt: report.generatedAt, requestId: req.ctx.id, subject, html, eml }));
     res.set('Content-Type', 'application/json; charset=utf-8');
-    if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+    if (/gzip/.test(req.headers['accept-encoding'] || '')) {
       res.set('Content-Encoding', 'gzip');
       res.send(gzipSync(payload));
     } else {
       res.send(payload);
     }
-    logUsage({ scope, mode, user, ok: true, durationMs: Date.now() - start, ip, ua });
   } catch (err) {
-    console.error(`[generate/${scope}] failed:`, err);
-    res.status(500).json({ error: err.message || 'generation failed' });
-    logUsage({ scope, mode, user, ok: false, durationMs: Date.now() - start, ip, ua, error: err.message });
+    console.error(`[generate/${scope}] ${req.ctx.id} failed:`, err);
+    req.ctx.buildMs = Date.now() - start;
+    req.ctx.error = err.message || 'generation failed';
+    res.status(500).json({ error: req.ctx.error, requestId: req.ctx.id });
   }
 });
 

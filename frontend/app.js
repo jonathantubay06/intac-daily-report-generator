@@ -97,7 +97,9 @@ function applyMode() {
   btnGa.classList.toggle('hidden', daily);
   btnNonGa.textContent = daily ? 'Generate Daily Report' : 'Generate Non-GA';
 }
-document.querySelector(`input[name="mode"][value="${new Date().getDay() === 1 ? 'weekly' : 'daily'}"]`).checked = true;
+// Monday is judged in US Central (the client's day), same as the report dates.
+const usWeekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'short' }).format(new Date());
+document.querySelector(`input[name="mode"][value="${usWeekday === 'Mon' ? 'weekly' : 'daily'}"]`).checked = true;
 document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', applyMode));
 applyMode();
 
@@ -149,6 +151,8 @@ async function generate(scope) {
       headers: {
         'X-Team-Password': teamPassword,
         'X-User-Name': userName || 'Unknown',
+        // Only for the worker's log (debugging); report dates stay in US time.
+        'X-User-Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone || '',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ mode: currentMode() }),
@@ -163,7 +167,9 @@ async function generate(scope) {
     }
     if (!r.ok) {
       const t = await r.text();
-      throw new Error(t || r.statusText);
+      // The worker's log line carries the same id, so a failure can be matched to it.
+      const ref = r.headers.get('X-Request-Id');
+      throw new Error((t || r.statusText) + (ref ? ` (ref ${ref})` : ''));
     }
     const result = await r.json();
     // An older worker ignores `mode` and would return the full Monday report.

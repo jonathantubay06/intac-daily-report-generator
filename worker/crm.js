@@ -28,13 +28,14 @@ const SEL = {
 };
 
 // mode 'daily' (Tue-Fri) sends only New policies + Producer activity (no KPI cards, no 30/60/90).
-export async function generateReport(scope, mode = 'weekly') {
+// timeZone: the clock the CRM page runs in, so its "today" and renewal windows match the US client.
+export async function generateReport(scope, mode = 'weekly', timeZone = 'America/Chicago') {
   if (!config.crmUser || !config.crmPassword) {
     throw new Error('CRM_USER / CRM_PASSWORD not set');
   }
 
   const browser = await chromium.launch({ headless: true });
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1, timezoneId: timeZone });
   const page = await ctx.newPage();
 
   try {
@@ -91,6 +92,7 @@ export async function generateReport(scope, mode = 'weekly') {
       scope,
       mode,
       generatedAt: new Date().toISOString(),
+      timeZone,
       images: {
         kpiCards,
         renewals30,
